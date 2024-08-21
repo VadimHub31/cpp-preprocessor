@@ -10,12 +10,77 @@
 using namespace std;
 using filesystem::path;
 
+const static regex reg_header(R"/(\s*#\s*include\s*"([^"]*)"\s*)/");
+const static regex reg_dir(R"/(\s*#\s*include\s*<([^>]*)>\s*)/");
+
 path operator""_p(const char* data, std::size_t sz) {
     return path(data, data + sz);
 }
 
+void SearchInIncludeDirectories(ofstream& out, const vector<path>& include_directories, smatch& match, bool& file_open);
+
+bool PreProcess(ifstream& in, ofstream& out, const path& in_file, const vector<path>& include_directories) {
+    smatch match;
+    string line;
+    int line_number = 0;
+    while(getline(in, line)) {
+        ++line_number;
+        if (regex_match(line, match, reg_header)) {
+            path file_path = in_file.parent_path() / string(match[1]);
+            ifstream include_file(file_path); 
+            if (include_file.is_open()) {
+                PreProcess(include_file, out, file_path, include_directories); 
+            }
+            else {
+                bool file_open = false;
+                SearchInIncludeDirectories(out, include_directories, match, file_open);
+                if (file_open == false) {
+                    cout << "unknown include file "s << string(match[1]) << " at file "s << in_file.string() << " at line "s << line_number << endl;
+                    return false;
+                }
+            }
+        }
+        else if (regex_match(line, match, reg_dir)) {
+            bool file_open = false;
+            SearchInIncludeDirectories(out, include_directories, match, file_open);
+            if (file_open == false) {
+                cout << "unknown include file "s << string(match[1]) << " at file "s << in_file.string() << " at line "s << line_number << endl;
+                return false;
+            }
+        }
+        else {
+            out << line << endl;
+        }
+    }
+    return true;
+}
+
+void SearchInIncludeDirectories(ofstream& out, const vector<path>& include_directories, smatch& match, bool& file_open) {
+    for (const auto& include_directory : include_directories) {
+        path file_path = include_directory / string(match[1]);
+        ifstream include_file(file_path);
+        if (include_file.is_open()) {
+            file_open = true;
+            PreProcess(include_file, out, file_path, include_directories);
+            break;
+        }
+    }
+}
+
 // напишите эту функцию
-bool Preprocess(const path& in_file, const path& out_file, const vector<path>& include_directories);
+bool Preprocess(const path& in_file, const path& out_file, const vector<path>& include_directories) {
+    ifstream in_(in_file);
+    if (!in_) {
+        return false;
+    }
+    
+    ofstream out_(out_file);
+    if (!out_) {
+        return false;
+    }
+
+    return PreProcess(in_, out_, in_file, include_directories);
+}
 
 string GetFileContents(string file) {
     ifstream stream(file);
